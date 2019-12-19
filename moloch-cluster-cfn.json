@@ -3,6 +3,56 @@
 
     "Description": "Deploy clustered Moloch packet capture system enhanced with Suricata IDS",
 
+    "Metadata": {
+        "AWS::CloudFormation::Interface": {
+            "ParameterGroups": [
+                {
+                    "Label": {"default": "Network settings"},
+                    "Parameters": ["VpcId", "Subnets", "VXLANLocation", "HTTPSLocation", "ViewerLocation", "SSHLocation"]
+                },
+                {
+                    "Label": {"default": "EC2 Instance settings"},
+                    "Parameters": ["InstanceType", "Keypair", "LatestAmiId"]
+                },
+                {
+                    "Label": {"default": "Moloch settings"},
+                    "Parameters": ["MolochDownloadURL", "ElasticsearchEndpointURL",
+                        "AdminUser", "AdminPassword", "S2SPassword", "S3FMaxObjectSizeGB", "S3FlushInterval"]
+                },
+                {
+                    "Label": {"default": "Auto-scaling settings"},
+                    "Parameters": ["MinSize", "MaxSize", "OperatorEMail"]
+                },
+                {
+                    "Label": {"default": "Viewer UI TLS settings"},
+                    "Parameters": ["CertificateArn"]
+                }
+            ],
+            "ParameterLabels": {
+                "VpcId": {"default": "Which VPC should this be deployed to?"},
+                "Subnets": {"default": "Subnets"},
+                "VXLANLocation": {"default": "Traffic capture CIDR"},
+                "HTTPSLocation": {"default": "HTTPS CIDR"},
+                "ViewerLocation": {"default": "Port 8005 CIDR"},
+                "SSHLocation": {"default": "SSH CIDR"},
+                "InstanceType": {"default": "Instance type"},
+                "Keypair": {"default": "Key pair"},
+                "LatestAmiId": {"default": "Amazon Linux 2 AMI ID"},
+                "MolochDownloadURL": {"default": "Moloch download URL"},
+                "ElasticsearchEndpointURL": {"default": "Elasticsearch endpoint URL"},
+                "AdminUser": {"default": "Administrator username"},
+                "AdminPassword": {"default": "Administrator password"},
+                "S2SPassword": {"default": "S2S password"},
+                "S3FMaxObjectSizeGB": {"default": "Maximum packet capture size"},
+                "S3FlushInterval": {"default": "New packet capture object interval"},
+                "MinSize": {"default": "Minumum number of instances"},
+                "MaxSize": {"default": "Maximum number of instances"},
+                "OperatorEMail": {"default": "Auto-scale notifications email address"},
+                "CertificateArn": {"default": "TLS Certificate ARN"}
+            }
+        }
+    },
+
     "Parameters": {
         "VpcId" : {
             "Type" : "AWS::EC2::VPC::Id",
@@ -12,7 +62,10 @@
         "S3FlushInterval": {
             "Type": "Number",
             "Description": "Write new pcap object to S3 every x minutes, 0 to disable",
-            "Default": 1
+            "Default": 1,
+            "ConstraintDescription": "must be between 0 and 720",
+            "MinValue": 0,
+            "MaxValue": 720
         },
         "S3FMaxObjectSizeGB": {
             "Type": "Number",
@@ -25,17 +78,21 @@
         "MinSize": {
             "Type": "Number",
             "Description": "Minumum number of instances in the Auto Scaling group",
-            "Default": 2
+            "Default": 2,
+            "ConstraintDescription": "must be 1 or larger",
+            "MinValue": 1
         },
         "MaxSize": {
             "Type": "Number",
             "Description": "Maxiumum number of instances in the Auto Scaling group",
-            "Default": 2
+            "ConstraintDescription": "must be 1 or larger",
+            "Default": 2,
+            "MinValue": 1
         },
         "Subnets" : {
             "Type" : "List<AWS::EC2::Subnet::Id>",
             "Description" : "The list of SubnetIds in your Virtual Private Cloud (VPC)",
-            "ConstraintDescription" : "must be a list of existing subnets associated with at different availability zones. They should be residing in the selected VPC."
+            "ConstraintDescription" : "must be a list of existing subnets associated with at least two different availability zones. They should be residing in the selected VPC."
         },
         "InstanceType": {
             "Type": "String",
@@ -58,10 +115,10 @@
         "Keypair": {
             "Type": "AWS::EC2::KeyPair::KeyName",
             "ConstraintDescription": "must be the name of an existing EC2 KeyPair.",
-            "Description": "Key pair for the monitoring instance"
+            "Description": "Key pair for EC2 instances"
         },
         "OperatorEMail": {
-            "Description": "EMail address to notify if there are any scaling operations",
+            "Description": "E-mail address to notify if there are any scaling operations",
             "Type": "String",
             "AllowedPattern": "([a-zA-Z0-9_\\-\\.]+)@((\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.)|(([a-zA-Z0-9\\-]+\\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\\]?)",
             "ConstraintDescription": "must be a valid email address."
@@ -72,7 +129,7 @@
         },
         "CertificateArn": {
             "Type": "String",
-            "Description": "TLS Certificate ARN from Certificate Manager"
+            "Description": "TLS Certificate ARN from AWS Certificate Manager"
         },
         "SSHLocation": {
             "Type": "String",
@@ -113,31 +170,38 @@
         "S2SPassword": {
             "Type": "String",
             "NoEcho": true,
-            "Description": "Enter S2S password, it can be random and it is not exposed to the end user"
+            "Description": "Enter S2S password, it can be random and it is not exposed to the end user",
+            "ConstraintDescription": "must be at least six alphanumeric characters",
+            "MinLength": "6",
+            "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*"
         },
         "MolochDownloadURL": {
             "Type": "String",
             "Default": "https://s3.amazonaws.com/files.molo.ch/moloch-master.centos7.x86_64.rpm",
             "Description": "Enter Moloch RPM package download URL",
-            "MinLength": "1"
+            "MinLength": "5"
         },
         "AdminUser": {
             "Type": "String",
             "Default": "admin",
             "Description": "Enter admin username",
             "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
-            "MinLength": "1"
+            "ConstraintDescription": "between 1 and 16 alphanumeric characters",
+            "MinLength": "1",
+            "MaxLength": "16"
         },
         "AdminPassword": {
             "Type": "String",
             "NoEcho": true,
             "Description": "Enter admin password",
-            "MinLength": "1"
+            "ConstraintDescription": "must be at least six alphanumeric characters",
+            "MinLength": "6",
+            "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*"
         },
         "ElasticsearchEndpointURL": {
             "Type": "String",
             "Description": "Enter Elasticsearch Endpoint URL without the trailing forward slash",
-            "MinLength": "3"
+            "MinLength": "5"
         }
     },
     "Resources": {
@@ -203,7 +267,6 @@
                 ]
             }
         },
-
         "S3Bucket": {
             "Type": "AWS::S3::Bucket",
             "DeletionPolicy": "Retain"
@@ -307,6 +370,8 @@
                     "LaunchTemplateId": { "Ref" : "LaunchTemplate" },
                     "Version": "1"
                 },
+                "HealthCheckType": "ELB",
+                "HealthCheckGracePeriod": 600,
                 "NotificationConfigurations": [
                     {
                         "TopicARN": { "Ref": "NotificationTopic" },
